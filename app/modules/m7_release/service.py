@@ -70,6 +70,14 @@ def compute(raw):
             }
             for name in order
         ],
+        "依赖图": {
+            name: {
+                "revision": registered[name]["revision"],
+                "reads": [[parent, lag] for parent, lag in registered[name]["reads"]],
+            }
+            for name in order
+        },
+        "指针": safe_counts(current),
         "指纹": [
             {"分区": r["分区"], "预期版本": r["计划"]["version"], "来源数": len(r["上游"])}
             for r in tasks

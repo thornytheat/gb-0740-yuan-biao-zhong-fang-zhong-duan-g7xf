@@ -5,6 +5,7 @@ from app.keys import ReplayError
 from app.modules import VIEWS, register
 from app.modules.m7_release.service import execute
 from app.modules.m7_release.store import Catalog
+from app.modules.m8_quarantine.service import view
 from app.web import fixture, record, repository
 from flask import Flask, abort, jsonify, render_template, request, url_for
 
@@ -44,6 +45,13 @@ def create_app(options=None):
         result = record(key) if key else execute(repository(), fixture("nightly"))[0]
         state = request.args.get("state")
         rows = [task for task in result["排程"] if not state or task["状态"] == state]
+        selected = None
+        if section == "quarantine":
+            credential_key = request.args.get("credential")
+            if credential_key:
+                selected = view(repository(), credential_key)
+                if not selected or selected["凭证"]["计划"] != result["批次"]["编号"]:
+                    abort(404)
         return render_template(
             f"{section}.html",
             views=VIEWS,
@@ -58,6 +66,15 @@ def create_app(options=None):
             tasks=rows,
             filter_state=state,
             latest=repository().latest() if section == "release" else [],
+            credentials=(
+                repository().credentials_for_plan(result["批次"]["编号"])
+                if section == "quarantine"
+                else []
+            ),
+            selected=selected,
+            released=request.args.get("released") == "yes",
+            failed=request.args.get("failed"),
+            creused=request.args.get("creused") == "yes",
         )
 
     @app.get("/api/plans")

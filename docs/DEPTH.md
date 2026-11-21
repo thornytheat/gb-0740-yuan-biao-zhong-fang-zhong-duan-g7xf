@@ -14,6 +14,7 @@
 | M5 回滚校验 | 核对写入前后与恢复哈希 | `GET /api/rollback/{id}` | `app/modules/m5_rollback/service.py` | `tests/test_rollback.py` |
 | M6 行数勾稽 | 守恒比较影响分区、源记录和行数 | `GET /api/reconcile/{id}` | `app/modules/m6_reconcile/service.py` | `tests/test_reconcile.py` |
 | M7 版本签发 | 在近期计划中复用并下载清单 | `GET /api/release/{id}` | `app/modules/m7_release/service.py` | `tests/test_release.py` |
+| M8 隔离处置 | 登记源表校验异常，签发解除凭证并演练解除 | `GET /api/quarantine/{id}` | `app/modules/m8_quarantine/service.py` | `tests/test_quarantine.py` |
 
 ## 陷阱登记
 
@@ -29,7 +30,13 @@
 | TRAP-20 | clean.json 添加回边 | 排序丢结点或死循环 | 深度优先检测访问栈 | `app/modules/m2_graph/service.py` | `tests/test_graph.py::test_cycle_path_from_sample` |
 | TRAP-23 | nightly.json 截点紧邻滞后一日 | 越界写入 | 分区日显式切界 | `app/modules/m4_schedule/expansion.py` | `tests/test_schedule.py::test_cutoff_included_but_lagged_next_day_excluded` |
 | TRAP-26 | 演练前计划引用旧指针 | 覆盖新版本 | 检查所有写入前置值 | `app/modules/m5_rollback/service.py` | `tests/test_rollback.py::test_stale_snapshot_atomic` |
+| TRAP-27 | 只放开直接子分支 | 多跳间接受影响的表漏判 | 从异常源分区沿反向依赖 BFS 圈定全边界 | `app/modules/m8_quarantine/service.py` | `tests/test_quarantine.py::test_boundary_covers_multi_hop` |
+| TRAP-28 | 解除中途指针已变动 | 半解除状态残留 | 整组恢复冻结前旧版结果再报失败 | `app/modules/m8_quarantine/service.py` | `tests/test_quarantine.py::test_release_restores_pre_freeze_versions_on_failure` |
+| TRAP-29 | 原异常证据被误删 | 已解除范围被当作仍可复核 | 凭证只钉证据摘要，回查必须读到原证据 | `app/modules/m8_quarantine/service.py` | `tests/test_quarantine.py::test_released_scope_not_auditable_after_evidence_deleted` |
+| TRAP-30 | 同一故障重复上报 | 每次重试都新增凭证 | 凭证编号由计划与故障内容哈希决定 | `app/modules/m8_quarantine/service.py` | `tests/test_quarantine.py::test_same_fault_retry_issues_no_second_credential` |
 
 ## 已知边界
 
 清单约定按日分区、拼接型节点、离线镜像演练。读源快照与分区日的证据随签发清单输出。
+
+隔离处置以签发计划为上下文：凭证从计划的依赖图与现行指针圈定冻结边界，解除与回查均为样例快照上的演练，实际仓库的调度与执行另由值班系统负责。凭证不内嵌证据原文，只钉证据摘要；原异常证据删除后，已解除范围即无法复核。

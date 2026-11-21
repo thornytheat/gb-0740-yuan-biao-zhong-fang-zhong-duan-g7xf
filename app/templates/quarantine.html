@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block section %}
+<section class="panel command"><h2>$ quarantine report</h2>
+  <form action="/api/quarantine" method="post" id="planner">
+    <input type="hidden" name="plan" value="{{ meta['编号'] }}">
+    <label>异常源分区<input type="text" name="partition" value="orders@2026-11-17" required></label>
+    <label>检测器<input type="text" name="detector" value="checksum-daily" required></label>
+    <label>检测时间<input type="text" name="detected" value="2026-11-21T02:40:00+00:00" required></label>
+    <label>期望校验值<input type="text" name="expected" value="sha256:orders-17-expected" required></label>
+    <label>实测校验值<input type="text" name="observed" value="sha256:orders-17-corrupt" required></label>
+    <label>修复快照 JSON<input type="text" name="repairs" value='[{"partition":"orders@2026-11-17","version":"s2-fix","rows":12,"checksum":"sha256:orders-17-expected"}]'></label>
+    <button type="submit">签发解除凭证</button>
+    <output role="status">{% if creused %}已复用凭证，同一故障不重复签发{% endif %}</output>
+  </form><span class="shortcut">多跳依赖一并圈定</span>
+</section>
+{% if released %}<section class="panel trailer"><h2>解除演练</h2><div>已按凭证解除</div><div>回滚校验一致</div><div>冻结前旧版可随时恢复</div></section>{% endif %}
+{% if failed %}<section class="panel trailer"><h2>解除演练</h2><div>解除失败</div><div>{{ failed }} 指针已变动</div><div>已恢复冻结前旧版结果</div></section>{% endif %}
+<section class="panel output"><h2>本计划凭证 <small>{{ credentials|length }} 份</small></h2>
+  {% if credentials %}<div class="scroll" tabindex="0" aria-label="凭证列表"><table>
+    <thead><tr><th scope="col">编号</th><th scope="col">故障分区</th><th scope="col">签发时间</th><th scope="col">边界</th><th scope="col">解除</th><th scope="col">保持冻结</th></tr></thead>
+    <tbody>{% for item in credentials %}<tr>
+      <td><a href="{{ url_for('console', section='quarantine', plan=meta['编号'], credential=item['凭证']['编号']) }}">{{ item['凭证']['编号'] }}</a></td>
+      <td>{{ item['凭证']['故障分区'] }}</td><td>{{ item['凭证']['签发时间'] }}</td>
+      <td class="num">{{ item['统计']['边界'] }}</td><td class="num">{{ item['统计']['解除'] }}</td><td class="num">{{ item['统计']['保持冻结'] }}</td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="empty">本计划尚未签发解除凭证。</p>{% endif %}
+</section>
+{% if selected %}
+<section class="panel checksum"><h2>$ quarantine credential <small>{{ selected['凭证']['编号'] }}</small></h2>
+  <dl>
+    <div><dt>故障分区</dt><dd>{{ selected['凭证']['故障分区'] }}</dd></div>
+    <div><dt>证据编号</dt><dd>{{ selected['凭证']['证据编号'] }} · {{ selected['凭证']['检测器'] }}</dd></div>
+    <div><dt>证据状态</dt><dd id="evidence">{% if selected['证据在场'] %}在场，可复核 · 期望 {{ selected['证据']['expected'] }} · 实测 {{ selected['证据']['observed'] }}{% else %}原异常证据已删除，已解除范围无法复核{% endif %}</dd></div>
+  </dl>
+</section>
+<section class="panel output"><h2>冻结边界 <small>{{ selected['冻结边界']|length }} 个分区 · 边界外 {{ selected['统计']['未受影响'] }} 个分区继续产出</small></h2>
+  <div class="scroll" tabindex="0" aria-label="冻结边界"><table>
+    <thead><tr><th scope="col">分区</th><th scope="col">跳数</th><th scope="col">经自</th></tr></thead>
+    <tbody>{% for row in selected['冻结边界'] %}<tr><td>{{ row['分区'] }}</td><td class="num">{{ row['跳数'] }}</td><td>{{ row['经自'] or '异常源' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="panel output"><h2>解除依据 <small>{{ selected['解除']|length }} 条</small></h2>
+  {% if selected['解除'] %}<div class="scroll" tabindex="0" aria-label="解除依据"><table>
+    <thead><tr><th scope="col">分区</th><th scope="col">依据</th><th scope="col">说明</th><th scope="col">当前版本</th><th scope="col">目标版本</th></tr></thead>
+    <tbody>{% for row in selected['解除'] %}<tr>
+      <td>{{ row['分区'] }}</td><td>{{ row['依据'] }}</td><td>{{ row['说明'] }}</td>
+      <td>{{ row['当前']['version'] if row['当前'] else '—' }}</td><td>{{ row['目标']['version'] }}</td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="empty">没有可解除的分区。</p>{% endif %}
+</section>
+<section class="panel output"><h2>仍不能恢复的分支 <small>{{ selected['保持冻结']|length }} 条</small></h2>
+  {% if selected['保持冻结'] %}<div class="scroll" tabindex="0" aria-label="保持冻结"><table>
+    <thead><tr><th scope="col">分区</th><th scope="col">原因码</th><th scope="col">说明</th></tr></thead>
+    <tbody>{% for row in selected['保持冻结'] %}<tr><td>{{ row['分区'] }}</td><td>{{ row['原因码'] }}</td><td>{{ row['说明'] }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="empty">边界内分区均可解除。</p>{% endif %}
+</section>
+<section class="panel command"><h2>$ quarantine actions</h2>
+  <form action="/api/quarantine/credential/{{ selected['凭证']['编号'] }}/release" method="post" id="planner">
+    <button type="submit">发布解除（演练）</button>
+    <a href="/api/quarantine/credential/{{ selected['凭证']['编号'] }}/backfill">补数清单</a>
+    <a href="/api/quarantine/credential/{{ selected['凭证']['编号'] }}/review">回查凭证</a>
+    <a href="/api/quarantine/credential/{{ selected['凭证']['编号'] }}">下载凭证</a>
+  </form>
+  {% if selected['证据在场'] %}<form action="/api/quarantine/evidence/{{ selected['凭证']['证据编号'] }}/drop" method="post" id="planner">
+    <input type="hidden" name="plan" value="{{ meta['编号'] }}">
+    <input type="hidden" name="credential" value="{{ selected['凭证']['编号'] }}">
+    <button type="submit">删除证据（演示误删）</button>
+  </form>{% endif %}
+  <span class="shortcut">发布、补数、回查读取同一份凭证</span>
+</section>
+{% endif %}
+<section class="panel trailer"><h2>$ quarantine scope</h2><div>截止 {{ meta['截止分区日'] }}</div><div>凭证 {{ credentials|length }} 份</div><div>{% if selected %}冻结 {{ selected['统计']['边界'] }} · 解除 {{ selected['统计']['解除'] }} · 保持 {{ selected['统计']['保持冻结'] }}{% else %}未选择凭证{% endif %}</div></section>
+{% endblock %}
